@@ -3,7 +3,35 @@ import { z } from 'zod';
 import { prisma } from '../index';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { AuthenticatedRequest } from '../middleware/auth';
-import { ConnectWiseClient } from '@fieldops/cw-client';
+// Inlined ConnectWise client (replaces @fieldops/cw-client workspace package)
+class ConnectWiseClient {
+  private baseUrl: string;
+  private authHeader: string;
+  private clientId: string;
+
+  constructor(config: { companyId: string; site: string; publicKey: string; privateKey: string; clientId: string }) {
+    this.baseUrl = `https://${config.site}/v4_6_release/apis/3.0`;
+    const token = Buffer.from(`${config.companyId}+${config.publicKey}:${config.privateKey}`).toString('base64');
+    this.authHeader = `Basic ${token}`;
+    this.clientId = config.clientId;
+  }
+
+  private async fetch<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { 'Authorization': this.authHeader, 'clientId': this.clientId, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error(`CW API error ${res.status}`);
+    return res.json() as Promise<T>;
+  }
+
+  async validateCredentials(): Promise<boolean> {
+    try { await this.fetch('/system/info'); return true; } catch { return false; }
+  }
+
+  async getSystemInfo(): Promise<{ version: string; companyName: string; codeLevel: string }> {
+    return this.fetch('/system/info');
+  }
+}
 import { encrypt, decrypt } from '../lib/crypto';
 
 const SaveCredentialsSchema = z.object({
