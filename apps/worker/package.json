@@ -1,0 +1,26 @@
+{
+  "name": "@fieldops/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --outDir dist",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fieldops/ai-client": "workspace:*",
+    "@fieldops/cw-client": "workspace:*",
+    "@fieldops/types": "workspace:*",
+    "@prisma/client": "^5.14.0",
+    "bullmq": "^5.7.0",
+    "ioredis": "^5.4.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "prisma": "^5.14.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,4 @@
+apps/api
+apps/worker
+packages/ai-client
+packages/cw-client

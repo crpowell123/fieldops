@@ -1,0 +1,260 @@
+// This Prisma schema uses a single "public" schema for tenant/auth tables
+// and creates per-tenant schemas dynamically at tenant creation time.
+// See: src/lib/tenant.ts for schema isolation implementation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── GLOBAL TABLES (public schema) ─────────────────────────────────────────────
+
+model Tenant {
+  id                   String    @id @default(cuid())
+  clerkOrgId           String    @unique
+  name                 String
+  slug                 String    @unique
+  plan                 String    @default("starter") // starter | growth | enterprise
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripeStatus         String?   // active | trialing | past_due | canceled
+  trialEndsAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  cwCredentials CWCredential?
+  users         TenantUser[]
+
+  @@map("tenants")
+}
+
+model TenantUser {
+  id          String   @id @default(cuid())
+  tenantId    String
+  clerkUserId String
+  email       String
+  name        String
+  role        String   @default("member") // owner | admin | member | viewer
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, clerkUserId])
+  @@map("tenant_users")
+}
+
+model CWCredential {
+  id           String    @id @default(cuid())
+  tenantId     String    @unique
+  companyId    String
+  site         String    @default("na.myconnectwise.net")
+  clientId     String
+  publicKey    String
+  privateKey   String    // AES-256-GCM encrypted
+  lastSyncedAt DateTime?
+  syncStatus   String    @default("idle") // idle | syncing | error
+  syncError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("cw_credentials")
+}
+
+// ── PER-TENANT TABLES ─────────────────────────────────────────────────────────
+// These are created in a per-tenant schema: schema_{tenantId}
+// The models below are used with $executeRaw for schema creation
+// and via raw queries with SET search_path for data access.
+// See: src/lib/tenant-schema.sql for the SQL template.
+
+// NOTE: The models below are for documentation and type generation only.
+// In production, we use raw SQL with schema-qualified table names.
+
+model Project {
+  id          String    @id @default(cuid())
+  cwProjectId String?
+  name        String
+  company     String
+  status      String    @default("Planning")
+  budget      Float     @default(0)
+  spent       Float     @default(0)
+  phase       String    @default("")
+  startDate   DateTime?
+  endDate     DateTime?
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  engineers   ResourceAllocation[]
+  spans       ResourceSpan[]
+  risks       Risk[]
+  lessons     Lesson[]
+  phases      SchedulePhase[]
+  procurement ProcurementItem[]
+  checklist   ChecklistItem[]
+
+  @@map("projects")
+}
+
+model Engineer {
+  id                   String  @id @default(cuid())
+  cwMemberId           String?
+  name                 String
+  email                String
+  role                 String
+  avatarUrl            String?
+  color                String  @default("#6366f1")
+  capacityHoursPerWeek Int     @default(40)
+  isActive             Boolean @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  allocations ResourceAllocation[]
+  spans       ResourceSpan[]
+
+  @@map("engineers")
+}
+
+model ResourceAllocation {
+  id           String    @id @default(cuid())
+  engineerId   String
+  projectId    String
+  hoursPerWeek Int
+  role         String
+  startDate    DateTime?
+  endDate      DateTime?
+  createdAt    DateTime  @default(now())
+
+  engineer Engineer @relation(fields: [engineerId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([engineerId, projectId])
+  @@map("resource_allocations")
+}
+
+model ResourceSpan {
+  id           String   @id @default(cuid())
+  engineerId   String
+  projectId    String
+  startDate    DateTime
+  endDate      DateTime
+  hoursPerDay  Int      @default(6)
+  role         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  engineer Engineer @relation(fields: [engineerId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("resource_spans")
+}
+
+model Risk {
+  id             String   @id @default(cuid())
+  projectId      String
+  title          String
+  category       String
+  probability    Int      @default(3)
+  impact         Int      @default(3)
+  status         String   @default("Open")
+  mitigation     String   @default("")
+  linkedProposal String?
+  owner          String
+  raisedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("risks")
+}
+
+model RegulatoryAnalysis {
+  id                 String   @id @default(cuid())
+  projectId          String?
+  state              String
+  locality           String?
+  workTypes          String[] // array of WorkTypeId
+  projectDescription String?
+  result             Json
+  createdAt          DateTime @default(now())
+
+  @@map("regulatory_analyses")
+}
+
+model Lesson {
+  id             String   @id @default(cuid())
+  projectId      String
+  date           DateTime
+  category       String
+  what           String
+  impact         String   @default("Negative")
+  recommendation String
+  addedByName    String
+  createdAt      DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("lessons")
+}
+
+model SchedulePhase {
+  id           String    @id @default(cuid())
+  projectId    String
+  phase        String
+  startDate    DateTime
+  endDate      DateTime
+  status       String    @default("Upcoming")
+  owner        String
+  dependencies String[]  // array of phase IDs
+  isMilestone  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("schedule_phases")
+}
+
+model ProcurementItem {
+  id        String    @id @default(cuid())
+  projectId String
+  item      String
+  vendor    String
+  qty       Int       @default(1)
+  unitCost  Float     @default(0)
+  status    String    @default("Pending PO")
+  orderedAt DateTime?
+  eta       DateTime?
+  poNumber  String?
+  notes     String    @default("")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("procurement_items")
+}
+
+model ChecklistItem {
+  id           String   @id @default(cuid())
+  projectId    String
+  category     String
+  item         String
+  checked      Boolean  @default(false)
+  assigneeName String
+  notes        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("checklist_items")
+}
