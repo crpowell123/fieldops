@@ -109,6 +109,25 @@ export function useCreateRisk() {
   });
 }
 
+export function useUpdateRisk() {
+  const api = useApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: Partial<Risk> & { id: string }) =>
+      api.patch<{ data: Risk }>(`/risks/${id}`, data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['risks'] }),
+  });
+}
+
+export function useDeleteRisk() {
+  const api = useApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/risks/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['risks'] }),
+  });
+}
+
 // ── REGULATORY ────────────────────────────────────────────────────────────────
 
 export function useAnalyzeRegulations() {
